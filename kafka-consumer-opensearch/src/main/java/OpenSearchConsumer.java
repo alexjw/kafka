@@ -110,7 +110,10 @@ public class OpenSearchConsumer {
                     try {
                         // send to opensearch
 
-                        IndexRequest indexRequest = new IndexRequest("wikimedia").source(record.value(), XContentType.JSON);
+                        // Define and ID with kafka record coordinates, this will make the consumer effectively idempotent
+                        String id = record.topic() + "_" + record.partition() + "_" + record.offset();
+
+                        IndexRequest indexRequest = new IndexRequest("wikimedia").source(record.value(), XContentType.JSON).id(id);
 
                         IndexResponse response = openSearchClient.index(indexRequest, RequestOptions.DEFAULT);
 
