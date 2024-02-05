@@ -8,6 +8,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.common.errors.WakeupException;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.opensearch.action.bulk.BulkRequest;
 import org.opensearch.action.bulk.BulkResponse;
@@ -86,8 +87,25 @@ public class OpenSearchConsumer {
         // OpenSearch Client
         RestHighLevelClient openSearchClient = createOpenSearchClient();
 
-        // Create Kafka client
+        // Create Kafka consumer
         KafkaConsumer<String, String> consumer = createKafkaConsumer();
+
+        final Thread mainThread = Thread.currentThread();
+
+        // adding the shutdown hook
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            log.info("Detected a shutdown, let's exit by calling consumer.wakeup()...");
+            consumer.wakeup();  // consumer.poll will throw a wakeupException
+
+            // join the main threa to allow the execution of hte conde in the main thread
+            try {
+                mainThread.join();
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+
+
+        }));
 
         // Create the index on Opensearch if it doesn't exist already
         try (openSearchClient; consumer) {
@@ -138,10 +156,15 @@ public class OpenSearchConsumer {
                 consumer.commitSync();
                 log.info("Offsets have been commited");
             }
+
+        } catch (WakeupException e) {
+            log.info("Consumer is starting to shutting down");
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         } finally {
+            consumer.close();
             openSearchClient.close();
+            log.info("The consumer is gracefully shut down");
         }
 
     }
