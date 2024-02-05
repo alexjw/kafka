@@ -71,6 +71,8 @@ public class OpenSearchConsumer {
         String groupId = "consumer-opensearch-demo";
         properties.setProperty(ConsumerConfig.GROUP_ID_CONFIG, groupId);
         properties.setProperty(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
+        // If this is false, we manually handle the commits
+        properties.setProperty(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
 
         // Create a consumer
         return new KafkaConsumer<>(properties);
@@ -111,15 +113,20 @@ public class OpenSearchConsumer {
                         // send to opensearch
 
                         // Define and ID with kafka record coordinates, this will make the consumer effectively idempotent
+                        // We can also extract the id from the record, it's inside the JSON
                         String id = record.topic() + "_" + record.partition() + "_" + record.offset();
 
                         IndexRequest indexRequest = new IndexRequest("wikimedia").source(record.value(), XContentType.JSON).id(id);
 
                         IndexResponse response = openSearchClient.index(indexRequest, RequestOptions.DEFAULT);
 
-                        log.info(response.getId());
+                        //log.info(response.getId());
                     } catch (Exception e) {}
                 }
+
+                // We commit only after we read all records, if ENABLE_AUTO_COMMIT_CONFIG is false
+                consumer.commitSync();
+                log.info("Offsets have been commited");
             }
         } finally {
             openSearchClient.close();
