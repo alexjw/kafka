@@ -9,8 +9,9 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.opensearch.action.bulk.BulkRequest;
+import org.opensearch.action.bulk.BulkResponse;
 import org.opensearch.action.index.IndexRequest;
-import org.opensearch.action.index.IndexResponse;
 import org.opensearch.client.RequestOptions;
 import org.opensearch.client.RestClient;
 import org.opensearch.client.RestHighLevelClient;
@@ -108,26 +109,37 @@ public class OpenSearchConsumer {
                 int recordCount = records.count();
                 log.info("Received " + recordCount + " records");
 
+                BulkRequest bulkRequest = new BulkRequest();
+
                 for (ConsumerRecord<String, String> record : records) {
-                    try {
-                        // send to opensearch
+                    // send to opensearch
 
-                        // Define and ID with kafka record coordinates, this will make the consumer effectively idempotent
-                        // We can also extract the id from the record, it's inside the JSON
-                        String id = record.topic() + "_" + record.partition() + "_" + record.offset();
+                    // Define and ID with kafka record coordinates, this will make the consumer effectively idempotent
+                    // We can also extract the id from the record, it's inside the JSON
+                    String id = record.topic() + "_" + record.partition() + "_" + record.offset();
 
-                        IndexRequest indexRequest = new IndexRequest("wikimedia").source(record.value(), XContentType.JSON).id(id);
+                    IndexRequest indexRequest = new IndexRequest("wikimedia").source(record.value(), XContentType.JSON).id(id);
 
-                        IndexResponse response = openSearchClient.index(indexRequest, RequestOptions.DEFAULT);
+                    bulkRequest.add(indexRequest);
 
-                        //log.info(response.getId());
-                    } catch (Exception e) {}
+                    //IndexResponse response = openSearchClient.index(indexRequest, RequestOptions.DEFAULT);
+
+                    //log.info(response.getId());
                 }
+
+
+                if(bulkRequest.numberOfActions() > 0) {
+                    BulkResponse bulkResponse = openSearchClient.bulk(bulkRequest, RequestOptions.DEFAULT);
+                    log.info("Inserted " + bulkResponse.getItems().length + " records");
+                }
+                Thread.sleep(1000); // To increase the amount of bulk
 
                 // We commit only after we read all records, if ENABLE_AUTO_COMMIT_CONFIG is false
                 consumer.commitSync();
                 log.info("Offsets have been commited");
             }
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
         } finally {
             openSearchClient.close();
         }
